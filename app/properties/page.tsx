@@ -135,9 +135,12 @@ export default function PropertiesPage() {
               property.account.depositAmount.toNumber() / 1_000_000
             ).toFixed(2);
 
-            // Apply filter
-            if (filter === "paris" && metadata.city?.toLowerCase() !== "paris")
+            // Don't show deactivated properties
+            if (!property.account.isAvailable) {
               return null;
+            }
+
+            // Apply filter
             if (filter === "available" && !property.account.isAvailable)
               return null;
 

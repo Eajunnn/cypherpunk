@@ -74,8 +74,14 @@ export default function LandlordPage() {
         commitment: "confirmed",
       });
 
-      // Generate unique property ID based on current properties count
-      const propertyId = properties.length + 1;
+      // For demo purposes, use one of our predefined images
+      let imageUrl = formData.image instanceof File ? '/luxury-apartment.jpg' : '/modern-apartment.jpg';
+      // Alternate between the two demo images to give some variety
+      if (Math.random() > 0.5) {
+        imageUrl = '/modern-apartment.jpg';
+      }      // Generate unique property ID
+      // Use a large random number to avoid conflicts with old accounts
+      const propertyId = 10000 + Math.floor(Math.random() * 90000);
 
       const signature = await createProperty(
         provider,
@@ -91,6 +97,7 @@ export default function LandlordPage() {
           bathrooms: formData.bathrooms,
           sqft: formData.sqft,
           description: formData.description,
+          image: imageUrl,
         })
       );
 
@@ -247,6 +254,19 @@ export default function LandlordPage() {
                   />
                 </div>
                 <div>
+                  <label className="block text-sm font-medium mb-2">Property Image</label>
+                  <ImageUploader
+                    onImageUpload={(file) =>
+                      setFormData({ ...formData, image: file })
+                    }
+                    onImageRemove={() =>
+                      setFormData({ ...formData, image: null })
+                    }
+                    previewUrl={formData.image ? URL.createObjectURL(formData.image) : undefined}
+                    className="mb-4"
+                  />
+                </div>
+                <div>
                   <label className="block text-sm font-medium mb-2">City</label>
                   <input
                     type="text"
@@ -375,17 +395,7 @@ export default function LandlordPage() {
                   required
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  Property Images
-                </label>
-                <ImageUploader
-                  onImageUpload={(file) => setFormData({ ...formData, image: file })}
-                  onImageRemove={() => setFormData({ ...formData, image: null })}
-                  previewUrl={formData.image ? URL.createObjectURL(formData.image) : undefined}
-                  className="mb-4"
-                />
-              </div>
+
               <button
                 type="submit"
                 className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 font-semibold"
@@ -437,7 +447,6 @@ export default function LandlordPage() {
           <div className="space-y-4">
             {!loadingProperties &&
               properties
-                .filter((property: any) => property.account.isAvailable) // Only show active listings
                 .map((property: any, index: number) => {
                 const rentAmount = (
                   Number(property.account.rentAmount) / Math.pow(10, 6)
@@ -454,6 +463,19 @@ export default function LandlordPage() {
                   metadata = JSON.parse(property.account.metadataUri);
                 } catch (e) {
                   metadata = { address: "Property", city: "N/A" };
+                }
+
+                // Get property status from enum (u8: 0=Available, 1=Rented, 2=Deactivated)
+                const status = property.account.status;
+                let statusText = "Available";
+                let statusClass = "bg-green-100 text-green-600 dark:bg-green-900/70 dark:text-green-300";
+
+                if (status === 1) {
+                  statusText = "Rented";
+                  statusClass = "bg-blue-100 text-blue-600 dark:bg-blue-900/70 dark:text-blue-300";
+                } else if (status === 2) {
+                  statusText = "Deactivated";
+                  statusClass = "bg-red-100 text-red-600 dark:bg-red-900/70 dark:text-red-300";
                 }
 
                 return (
@@ -478,15 +500,9 @@ export default function LandlordPage() {
                       </div>
                       <div className="text-right">
                         <span
-                          className={`px-3 py-1 rounded-full text-sm ${
-                            property.account.isAvailable
-                              ? "bg-green-100 text-green-600 dark:bg-green-900/70 dark:text-green-300"
-                              : "bg-red-100 text-red-600 dark:bg-red-900/70 dark:text-red-300"
-                          }`}
+                          className={`px-3 py-1 rounded-full text-sm ${statusClass}`}
                         >
-                          {property.account.isAvailable
-                            ? "Available"
-                            : "Deactivated"}
+                          {statusText}
                         </span>
                         <p className="text-xs text-gray-500 mt-2">
                           ID: {property.account.propertyId.toString()}
@@ -505,7 +521,7 @@ export default function LandlordPage() {
                       >
                         View on Solana Explorer →
                       </a>
-                      {property.account.isAvailable && (
+                      {status === 0 && (
                         <button
                           onClick={() =>
                             handleDeactivate(property.publicKey.toString())

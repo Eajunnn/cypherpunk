@@ -100,7 +100,12 @@ export default function PropertyDetailPage() {
       // Convert amounts from USDC smallest units to human-readable (6 decimals)
       const rentInUSDC = property.rentAmount.toNumber() / 1_000_000;
       const depositInUSDC = property.depositAmount.toNumber() / 1_000_000;
-      const durationInMonths = Math.floor(property.leaseDuration.toNumber() / (30 * 24 * 60 * 60));
+      const durationInMonths = Math.ceil(property.leaseDuration.toNumber() / (30 * 24 * 60 * 60));
+      
+      // Validate lease duration
+      if (durationInMonths <= 0) {
+        throw new Error('Invalid lease duration: must be greater than 0 months');
+      }
 
       // Create rental agreement and deposit to escrow
       const signature = await createRentalAndDeposit(
@@ -177,8 +182,18 @@ export default function PropertyDetailPage() {
         {!fetchLoading && property && (
           <div className="bg-white rounded-lg shadow-lg overflow-hidden">
             {/* Property Image */}
-            <div className="h-96 bg-gradient-to-r from-blue-400 to-blue-600 flex items-center justify-center text-white text-3xl font-semibold relative">
-              {metadata.city || 'Property'}
+            <div className="h-96 relative">
+              {metadata.image ? (
+                <img
+                  src={metadata.image}
+                  alt={metadata.address || 'Property'}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-r from-blue-400 to-blue-600 flex items-center justify-center text-white text-3xl font-semibold">
+                  {metadata.city || 'Property'}
+                </div>
+              )}
               {property.isVerified && (
                 <div className="absolute top-4 right-4 bg-green-500 text-white px-4 py-2 rounded-full text-sm flex items-center gap-2">
                   <span>✓</span>
@@ -190,8 +205,8 @@ export default function PropertyDetailPage() {
             <div className="p-8">
               {/* Property Header */}
               <div className="mb-6">
-                <h1 className="text-3xl font-bold mb-2">{metadata.address || 'Property Address'}</h1>
-                <p className="text-lg text-gray-600">
+                <h1 className="text-3xl font-bold text-gray-900 mb-2">{metadata.address || 'Property Address'}</h1>
+                <p className="text-lg text-gray-900">
                   {metadata.city || 'Unknown'}, {metadata.country || 'Unknown'}
                 </p>
                 <div className="mt-3 p-3 bg-gray-50 rounded-lg">
@@ -248,22 +263,22 @@ export default function PropertyDetailPage() {
                   <h2 className="text-xl font-semibold mb-4">Rental Terms</h2>
                   <div className="space-y-2">
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Monthly Rent:</span>
-                      <span className="font-semibold text-blue-600">{rentAmount.toFixed(2)} USDC</span>
+                      <span className="text-gray-900 font-medium">Monthly Rent:</span>
+                      <span className="font-semibold text-gray-900">{rentAmount.toFixed(2)} USDC</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Security Deposit:</span>
-                      <span className="font-semibold text-blue-600">{depositAmount.toFixed(2)} USDC</span>
+                      <span className="text-gray-900 font-medium">Security Deposit:</span>
+                      <span className="font-semibold text-gray-900">{depositAmount.toFixed(2)} USDC</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Total Due at Signing:</span>
-                      <span className="font-semibold text-blue-600">
+                      <span className="text-gray-900 font-medium">Total Due at Signing:</span>
+                      <span className="font-semibold text-gray-900">
                         {(rentAmount + depositAmount).toFixed(2)} USDC
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Status:</span>
-                      <span className={`font-semibold ${property.isAvailable ? 'text-green-600' : 'text-red-600'}`}>
+                      <span className="text-gray-900 font-medium">Status:</span>
+                      <span className={`font-semibold ${property.isAvailable ? 'text-green-700' : 'text-red-700'}`}>
                         {property.isAvailable ? 'Available' : 'Not Available'}
                       </span>
                     </div>

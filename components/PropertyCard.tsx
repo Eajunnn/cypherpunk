@@ -66,8 +66,8 @@ export default function PropertyCard({
                 Available
               </span>
             ) : (
-              <span className="px-3 py-1 text-sm font-medium bg-gray-500/90 text-white rounded-full backdrop-blur-sm shadow-lg">
-                Rented
+              <span className="px-3 py-1 text-sm font-medium bg-red-500/90 text-white rounded-full backdrop-blur-sm shadow-lg">
+                Deactivated
               </span>
             )}
           </div>
