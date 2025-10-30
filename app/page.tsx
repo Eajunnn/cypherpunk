@@ -106,11 +106,11 @@ export default function Home() {
                 STEP 2
               </div>
               <h3 className="text-2xl font-bold mb-3 text-gray-900 dark:text-white">
-                Pay with SOL
+                Pay with USDC
               </h3>
               <p className="text-gray-600 dark:text-gray-300 leading-relaxed">
                 Tenants pay security deposit and monthly rent automatically
-                using SOL stablecoin.
+                using USDC stablecoin.
               </p>
             </div>
             <div className="group text-center p-8 rounded-2xl hover:bg-gradient-to-br hover:from-purple-50 hover:to-indigo-50 dark:hover:from-gray-800 dark:hover:to-gray-800 transition-all duration-300 hover:shadow-xl">
