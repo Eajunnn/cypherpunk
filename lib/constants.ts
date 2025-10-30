@@ -7,3 +7,4 @@ export const ESCROW_PROGRAM_ID = new PublicKey('6NRTSGkeKgP2VLvfnvw51ZzsFeaM1CV2
 
 // Decimals
 export const SOL_DECIMALS = 9; // SOL has 9 decimals (lamports)
+export const USDC_DECIMALS = 6; // USDC has 6 decimals

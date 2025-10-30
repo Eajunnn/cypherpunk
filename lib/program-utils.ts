@@ -4,7 +4,8 @@ import {
   PROPERTY_PROGRAM_ID,
   RENTAL_PROGRAM_ID,
   ESCROW_PROGRAM_ID,
-  SOL_DECIMALS
+  SOL_DECIMALS,
+  USDC_DECIMALS
 } from './constants';
 
 // IDL types (simplified - in production you'd import from target/types)
@@ -13,7 +14,7 @@ const PROPERTY_IDL = {
   name: "property_registry",
   instructions: [
     {
-      name: "createProperty",
+      name: "createListing",
       accounts: [
         { name: "property", isMut: true, isSigner: false },
         { name: "landlord", isMut: true, isSigner: true },
@@ -26,6 +27,14 @@ const PROPERTY_IDL = {
         { name: "leaseDuration", type: "i64" },
         { name: "metadataUri", type: "string" },
       ],
+    },
+    {
+      name: "deactivateListing",
+      accounts: [
+        { name: "property", isMut: true, isSigner: false },
+        { name: "landlord", isMut: false, isSigner: true },
+      ],
+      args: [],
     },
   ],
   accounts: [
@@ -40,7 +49,12 @@ const PROPERTY_IDL = {
           { name: "depositAmount", type: "u64" },
           { name: "leaseDuration", type: "i64" },
           { name: "isAvailable", type: "bool" },
+          { name: "isVerified", type: "bool" },
+          { name: "verificationLevel", type: "u8" },
           { name: "metadataUri", type: "string" },
+          { name: "documentHash", type: "string" },
+          { name: "totalRentals", type: "u32" },
+          { name: "successfulRentals", type: "u32" },
           { name: "bump", type: "u8" },
           { name: "createdAt", type: "i64" },
         ],
@@ -89,9 +103,9 @@ const ESCROW_IDL = {
       name: "depositToEscrow",
       accounts: [
         { name: "escrow", isMut: true, isSigner: false },
+        { name: "rentalAgreement", isMut: false, isSigner: false },
         { name: "tenant", isMut: true, isSigner: true },
         { name: "landlord", isMut: false, isSigner: false },
-        { name: "rentalAgreement", isMut: false, isSigner: false },
         { name: "systemProgram", isMut: false, isSigner: false },
       ],
       args: [
@@ -161,10 +175,10 @@ export async function createProperty(
   const [propertyPDA] = getPropertyPDA(provider.wallet.publicKey, propertyId);
 
   const tx = await program.methods
-    .createProperty(
+    .createListing(
       new BN(propertyId),
-      new BN(rentAmount * LAMPORTS_PER_SOL),
-      new BN(depositAmount * LAMPORTS_PER_SOL),
+      new BN(rentAmount * Math.pow(10, USDC_DECIMALS)), // Convert to USDC smallest units (6 decimals)
+      new BN(depositAmount * Math.pow(10, USDC_DECIMALS)), // Convert to USDC smallest units (6 decimals)
       new BN(leaseDuration),
       metadataUri
     )
@@ -210,8 +224,8 @@ export async function createRentalAndDeposit(
 
   const rentalTx = await rentalProgram.methods
     .createLease(
-      new BN(rentAmount * LAMPORTS_PER_SOL),
-      new BN(depositAmount * LAMPORTS_PER_SOL),
+      new BN(rentAmount * Math.pow(10, USDC_DECIMALS)), // Convert to USDC smallest units (6 decimals)
+      new BN(depositAmount * Math.pow(10, USDC_DECIMALS)), // Convert to USDC smallest units (6 decimals)
       new BN(leaseDuration * 30 * 24 * 60 * 60) // Convert months to seconds
     )
     .accounts({
@@ -219,11 +233,12 @@ export async function createRentalAndDeposit(
       property: propertyPDA,
       landlord: landlord,
       tenant: tenant,
+      propertyProgram: PROPERTY_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
     })
     .rpc();
 
-  // Deposit SOL to escrow
+  // Deposit USDC to escrow
   const escrowProgram = new Program(
     ESCROW_IDL as any,
     ESCROW_PROGRAM_ID,
@@ -232,13 +247,13 @@ export async function createRentalAndDeposit(
 
   const depositTx = await escrowProgram.methods
     .depositToEscrow(
-      new BN(depositAmount * LAMPORTS_PER_SOL)
+      new BN(depositAmount * Math.pow(10, USDC_DECIMALS)) // Convert to USDC smallest units (6 decimals)
     )
     .accounts({
       escrow: escrowPDA,
+      rentalAgreement: rentalPDA,
       tenant: tenant,
       landlord: landlord,
-      rentalAgreement: rentalPDA,
       systemProgram: SystemProgram.programId,
     })
     .rpc();
@@ -289,12 +304,13 @@ export async function fetchLandlordProperties(
   const properties = await program.account.property.all([
     {
       memcmp: {
-        offset: 8, // After discriminator
+        offset: 8, // After discriminator (8 bytes)
         bytes: landlord.toBase58(),
       },
     },
   ]);
 
+  // Only return active properties
   return properties;
 }
 
@@ -319,6 +335,26 @@ export async function fetchTenantRentals(
   ]);
 
   return rentals;
+}
+
+/**
+ * Deactivate a property listing
+ */
+export async function deactivateProperty(
+  provider: AnchorProvider,
+  propertyPDA: PublicKey
+): Promise<string> {
+  const program = new Program(PROPERTY_IDL as any, PROPERTY_PROGRAM_ID, provider);
+
+  const tx = await program.methods
+    .deactivateListing()
+    .accounts({
+      property: propertyPDA,
+      landlord: provider.wallet.publicKey,
+    })
+    .rpc();
+
+  return tx;
 }
 
 /**

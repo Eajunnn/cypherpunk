@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import WalletProvider from "@/components/WalletProvider";
 import Navbar from "@/components/Navbar";
+import { ThemeProvider } from "@/components/ThemeProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,7 +17,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "RentChain - Stablecoin Rental Platform",
-  description: "Transparent, automated rental agreements on Solana with stablecoin payments",
+  description:
+    "Transparent, automated rental agreements on Solana with stablecoin payments",
 };
 
 export default function RootLayout({
@@ -27,14 +29,15 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased transition-colors duration-200 min-h-screen`}
+        suppressHydrationWarning
       >
-        <WalletProvider>
-          <Navbar />
-          <main className="min-h-screen bg-gray-50">
-            {children}
-          </main>
-        </WalletProvider>
+        <ThemeProvider>
+          <WalletProvider>
+            <Navbar />
+            <main>{children}</main>
+          </WalletProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

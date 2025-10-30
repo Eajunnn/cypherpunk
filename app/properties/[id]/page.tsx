@@ -1,11 +1,42 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
-import { AnchorProvider } from '@coral-xyz/anchor';
+import { AnchorProvider, Program } from '@coral-xyz/anchor';
 import { PublicKey } from '@solana/web3.js';
 import { createRentalAndDeposit, getExplorerUrl } from '@/lib/program-utils';
+import { PROPERTY_PROGRAM_ID } from '@/lib/constants';
+
+const PROPERTY_IDL = {
+  version: "0.1.0",
+  name: "property_registry",
+  instructions: [],
+  accounts: [
+    {
+      name: "Property",
+      type: {
+        kind: "struct",
+        fields: [
+          { name: "landlord", type: "publicKey" },
+          { name: "propertyId", type: "u64" },
+          { name: "rentAmount", type: "u64" },
+          { name: "depositAmount", type: "u64" },
+          { name: "leaseDuration", type: "i64" },
+          { name: "isAvailable", type: "bool" },
+          { name: "isVerified", type: "bool" },
+          { name: "verificationLevel", type: "u8" },
+          { name: "metadataUri", type: "string" },
+          { name: "documentHash", type: "string" },
+          { name: "totalRentals", type: "u32" },
+          { name: "successfulRentals", type: "u32" },
+          { name: "bump", type: "u8" },
+          { name: "createdAt", type: "i64" },
+        ],
+      },
+    },
+  ],
+};
 
 export default function PropertyDetailPage() {
   const params = useParams();
@@ -13,31 +44,47 @@ export default function PropertyDetailPage() {
   const { connected, publicKey, wallet } = useWallet();
   const { connection } = useConnection();
   const [loading, setLoading] = useState(false);
+  const [fetchLoading, setFetchLoading] = useState(true);
   const [txSignature, setTxSignature] = useState<string>('');
+  const [property, setProperty] = useState<any>(null);
+  const [propertyPubkey, setPropertyPubkey] = useState<PublicKey | null>(null);
 
-  // Mock property data with realistic USD-equivalent costs
-  // In production, this would be fetched from blockchain
-  const property = {
-    id: Number(params.id),
-    address: params.id === '1' ? '123 Rue de Rivoli' : params.id === '2' ? '456 Avenue des Champs-Élysées' : '789 Boulevard Saint-Germain',
-    city: 'Paris',
-    country: 'France',
-    bedrooms: params.id === '1' ? 2 : params.id === '2' ? 3 : 1,
-    bathrooms: params.id === '1' ? 1 : params.id === '2' ? 2 : 1,
-    sqft: params.id === '1' ? 850 : params.id === '2' ? 1200 : 600,
-    rent: params.id === '1' ? 0.1 : params.id === '2' ? 0.15 : 0.08,
-    deposit: params.id === '1' ? 0.2 : params.id === '2' ? 0.3 : 0.15,
-    duration: 12,
-    description: 'Beautiful apartment in the heart of Paris, close to all amenities. Fully furnished with modern appliances and stunning city views.',
-    amenities: ['WiFi', 'Parking', 'Elevator', 'Balcony', 'Heating'],
-    available: true,
-    // Mock landlord address - in production, fetch from property account
-    landlord: new PublicKey('BdM5cC9ZDv5dtTWFf1Lqc5t9Cn4q1H6jaMiJ5vuujyTU'),
-  };
+  // Fetch property from blockchain
+  useEffect(() => {
+    async function fetchProperty() {
+      try {
+        setFetchLoading(true);
+        const propertyKey = new PublicKey(params.id as string);
+        setPropertyPubkey(propertyKey);
+
+        const program = new Program(PROPERTY_IDL as any, PROPERTY_PROGRAM_ID, {
+          connection,
+        } as any);
+
+        const propertyAccount = await program.account.property.fetch(propertyKey);
+        console.log('Fetched property:', propertyAccount);
+        setProperty(propertyAccount);
+      } catch (error) {
+        console.error('Error fetching property:', error);
+        alert('Failed to fetch property from blockchain. Invalid property ID or property does not exist.');
+      } finally {
+        setFetchLoading(false);
+      }
+    }
+
+    if (params.id) {
+      fetchProperty();
+    }
+  }, [params.id, connection]);
 
   const handleApply = async () => {
     if (!connected || !publicKey || !wallet) {
       alert('Please connect your wallet first');
+      return;
+    }
+
+    if (!property || !propertyPubkey) {
+      alert('Property data not loaded');
       return;
     }
 
@@ -50,14 +97,19 @@ export default function PropertyDetailPage() {
         { commitment: 'confirmed' }
       );
 
+      // Convert amounts from USDC smallest units to human-readable (6 decimals)
+      const rentInUSDC = property.rentAmount.toNumber() / 1_000_000;
+      const depositInUSDC = property.depositAmount.toNumber() / 1_000_000;
+      const durationInMonths = Math.floor(property.leaseDuration.toNumber() / (30 * 24 * 60 * 60));
+
       // Create rental agreement and deposit to escrow
       const signature = await createRentalAndDeposit(
         provider,
         property.landlord,
-        property.id,
-        property.rent,
-        property.deposit,
-        property.duration
+        property.propertyId.toNumber(),
+        rentInUSDC,
+        depositInUSDC,
+        durationInMonths
       );
 
       setTxSignature(signature);
@@ -78,6 +130,24 @@ export default function PropertyDetailPage() {
     }
   };
 
+  // Parse metadata
+  let metadata: any = {};
+  let rentAmount = 0;
+  let depositAmount = 0;
+  let durationMonths = 0;
+
+  if (property) {
+    try {
+      metadata = JSON.parse(property.metadataUri);
+    } catch (e) {
+      console.error('Failed to parse metadata:', e);
+      metadata = { address: 'Unknown', city: 'Unknown', country: 'Unknown', description: 'No description available' };
+    }
+    rentAmount = property.rentAmount.toNumber() / 1_000_000;
+    depositAmount = property.depositAmount.toNumber() / 1_000_000;
+    durationMonths = Math.floor(property.leaseDuration.toNumber() / (30 * 24 * 60 * 60));
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 py-12">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -89,140 +159,198 @@ export default function PropertyDetailPage() {
           ← Back to Properties
         </button>
 
-        <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-          {/* Property Image */}
-          <div className="h-96 bg-gradient-to-r from-blue-400 to-blue-600 flex items-center justify-center text-white text-3xl font-semibold">
-            {property.city} Property
+        {/* Loading State */}
+        {fetchLoading && (
+          <div className="text-center py-12">
+            <p className="text-gray-600 text-lg">Loading property from blockchain...</p>
           </div>
+        )}
 
-          <div className="p-8">
-            {/* Property Header */}
-            <div className="mb-6">
-              <h1 className="text-3xl font-bold mb-2">{property.address}</h1>
-              <p className="text-lg text-gray-600">
-                {property.city}, {property.country}
-              </p>
-            </div>
+        {/* Error State */}
+        {!fetchLoading && !property && (
+          <div className="text-center py-12">
+            <p className="text-gray-600 text-lg">Property not found</p>
+          </div>
+        )}
 
-            {/* Property Details */}
-            <div className="grid md:grid-cols-2 gap-8 mb-8">
-              <div>
-                <h2 className="text-xl font-semibold mb-4">Property Details</h2>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Bedrooms:</span>
-                    <span className="font-semibold">{property.bedrooms}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Bathrooms:</span>
-                    <span className="font-semibold">{property.bathrooms}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Square Feet:</span>
-                    <span className="font-semibold">{property.sqft} sqft</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Lease Duration:</span>
-                    <span className="font-semibold">{property.duration} months</span>
-                  </div>
+        {/* Property Details */}
+        {!fetchLoading && property && (
+          <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+            {/* Property Image */}
+            <div className="h-96 bg-gradient-to-r from-blue-400 to-blue-600 flex items-center justify-center text-white text-3xl font-semibold relative">
+              {metadata.city || 'Property'}
+              {property.isVerified && (
+                <div className="absolute top-4 right-4 bg-green-500 text-white px-4 py-2 rounded-full text-sm flex items-center gap-2">
+                  <span>✓</span>
+                  <span>Verified Level {property.verificationLevel}</span>
                 </div>
-              </div>
-
-              <div>
-                <h2 className="text-xl font-semibold mb-4">Rental Terms</h2>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Monthly Rent:</span>
-                    <span className="font-semibold text-blue-600">{property.rent} SOL</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Security Deposit:</span>
-                    <span className="font-semibold text-blue-600">{property.deposit} SOL</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Total Due at Signing:</span>
-                    <span className="font-semibold text-blue-600">
-                      {property.rent + property.deposit} SOL
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Status:</span>
-                    <span className="font-semibold text-green-600">
-                      {property.available ? 'Available' : 'Rented'}
-                    </span>
-                  </div>
-                </div>
-              </div>
+              )}
             </div>
 
-            {/* Description */}
-            <div className="mb-8">
-              <h2 className="text-xl font-semibold mb-4">Description</h2>
-              <p className="text-gray-600">{property.description}</p>
-            </div>
-
-            {/* Amenities */}
-            <div className="mb-8">
-              <h2 className="text-xl font-semibold mb-4">Amenities</h2>
-              <div className="flex flex-wrap gap-2">
-                {property.amenities.map((amenity) => (
-                  <span
-                    key={amenity}
-                    className="bg-blue-100 text-blue-600 px-3 py-1 rounded-full text-sm"
-                  >
-                    {amenity}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            {/* Apply Button */}
-            {property.available && (
-              <div className="border-t pt-6">
-                {txSignature && (
-                  <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-                    <h3 className="font-semibold text-green-800 mb-2">Transaction Successful!</h3>
-                    <p className="text-sm text-green-700 mb-2">
-                      Signature: {txSignature.slice(0, 8)}...{txSignature.slice(-8)}
-                    </p>
-                    <a
-                      href={getExplorerUrl(txSignature)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-blue-600 hover:underline"
-                    >
-                      View on Solana Explorer →
-                    </a>
-                  </div>
-                )}
-                <button
-                  onClick={handleApply}
-                  disabled={loading || !connected}
-                  className={`w-full py-3 rounded-lg font-semibold ${
-                    loading || !connected
-                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                      : 'bg-blue-600 text-white hover:bg-blue-700'
-                  }`}
-                >
-                  {loading
-                    ? 'Processing Blockchain Transaction...'
-                    : connected
-                    ? `Apply for Rental (${property.deposit} SOL Deposit)`
-                    : 'Connect Wallet to Apply'}
-                </button>
-                {connected && publicKey && (
-                  <p className="text-sm text-gray-600 text-center mt-4">
-                    Connected: {publicKey.toString().slice(0, 8)}...
-                    {publicKey.toString().slice(-8)}
-                  </p>
-                )}
-                <p className="text-xs text-gray-500 text-center mt-2">
-                  This will create a rental agreement on-chain and deposit {property.deposit} SOL to escrow
+            <div className="p-8">
+              {/* Property Header */}
+              <div className="mb-6">
+                <h1 className="text-3xl font-bold mb-2">{metadata.address || 'Property Address'}</h1>
+                <p className="text-lg text-gray-600">
+                  {metadata.city || 'Unknown'}, {metadata.country || 'Unknown'}
                 </p>
+                <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+                  <p className="text-sm text-gray-600 mb-1">Property Owner:</p>
+                  <p className="text-sm font-mono text-gray-800">{property.landlord.toString()}</p>
+                </div>
+                {property.documentHash && (
+                  <div className="mt-2 p-2 bg-blue-50 rounded text-xs">
+                    <span className="text-gray-600">Document Hash: </span>
+                    <span className="font-mono text-blue-600">{property.documentHash}</span>
+                  </div>
+                )}
               </div>
-            )}
+
+              {/* Property Details */}
+              <div className="grid md:grid-cols-2 gap-8 mb-8">
+                <div>
+                  <h2 className="text-xl font-semibold mb-4">Property Details</h2>
+                  <div className="space-y-2">
+                    {metadata.bedrooms && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Bedrooms:</span>
+                        <span className="font-semibold">{metadata.bedrooms}</span>
+                      </div>
+                    )}
+                    {metadata.bathrooms && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Bathrooms:</span>
+                        <span className="font-semibold">{metadata.bathrooms}</span>
+                      </div>
+                    )}
+                    {metadata.sqft && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Square Feet:</span>
+                        <span className="font-semibold">{metadata.sqft} sqft</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Lease Duration:</span>
+                      <span className="font-semibold">{durationMonths} months</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Total Rentals:</span>
+                      <span className="font-semibold">{property.totalRentals}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Successful Rentals:</span>
+                      <span className="font-semibold text-green-600">{property.successfulRentals}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h2 className="text-xl font-semibold mb-4">Rental Terms</h2>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Monthly Rent:</span>
+                      <span className="font-semibold text-blue-600">{rentAmount.toFixed(2)} USDC</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Security Deposit:</span>
+                      <span className="font-semibold text-blue-600">{depositAmount.toFixed(2)} USDC</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Total Due at Signing:</span>
+                      <span className="font-semibold text-blue-600">
+                        {(rentAmount + depositAmount).toFixed(2)} USDC
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Status:</span>
+                      <span className={`font-semibold ${property.isAvailable ? 'text-green-600' : 'text-red-600'}`}>
+                        {property.isAvailable ? 'Available' : 'Not Available'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Description */}
+              <div className="mb-8">
+                <h2 className="text-xl font-semibold mb-4">Description</h2>
+                <p className="text-gray-600">{metadata.description || 'No description available'}</p>
+              </div>
+
+              {/* Amenities */}
+              {metadata.amenities && metadata.amenities.length > 0 && (
+                <div className="mb-8">
+                  <h2 className="text-xl font-semibold mb-4">Amenities</h2>
+                  <div className="flex flex-wrap gap-2">
+                    {metadata.amenities.map((amenity: string, idx: number) => (
+                      <span
+                        key={idx}
+                        className="bg-blue-100 text-blue-600 px-3 py-1 rounded-full text-sm"
+                      >
+                        {amenity}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Apply Button */}
+              {property.isAvailable && (
+                <div className="border-t pt-6">
+                  {txSignature && (
+                    <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+                      <h3 className="font-semibold text-green-800 mb-2">Transaction Successful!</h3>
+                      <p className="text-sm text-green-700 mb-2">
+                        Signature: {txSignature.slice(0, 8)}...{txSignature.slice(-8)}
+                      </p>
+                      <a
+                        href={getExplorerUrl(txSignature)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-blue-600 hover:underline"
+                      >
+                        View on Solana Explorer →
+                      </a>
+                    </div>
+                  )}
+                  <button
+                    onClick={handleApply}
+                    disabled={loading || !connected}
+                    className={`w-full py-3 rounded-lg font-semibold ${
+                      loading || !connected
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                    }`}
+                  >
+                    {loading
+                      ? 'Processing Blockchain Transaction...'
+                      : connected
+                      ? `Apply for Rental (${depositAmount.toFixed(2)} USDC Deposit)`
+                      : 'Connect Wallet to Apply'}
+                  </button>
+                  {connected && publicKey && (
+                    <p className="text-sm text-gray-600 text-center mt-4">
+                      Connected: {publicKey.toString().slice(0, 8)}...
+                      {publicKey.toString().slice(-8)}
+                    </p>
+                  )}
+                  <p className="text-xs text-gray-500 text-center mt-2">
+                    This will create a rental agreement on-chain and deposit {depositAmount.toFixed(2)} USDC to escrow.
+                    Payment will go to the property owner: {property.landlord.toString().slice(0, 8)}...{property.landlord.toString().slice(-8)}
+                  </p>
+                </div>
+              )}
+
+              {!property.isAvailable && (
+                <div className="border-t pt-6">
+                  <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-center">
+                    <p className="text-red-700 font-semibold">This property is currently not available for rent</p>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
